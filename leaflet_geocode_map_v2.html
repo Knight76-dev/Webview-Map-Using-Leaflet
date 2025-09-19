@@ -1,0 +1,104 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Leaflet Search Map (Geocoding)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Leaflet CSS (no integrity attributes to avoid loading issues when opened locally) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <!-- Leaflet Control Geocoder CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css" />
+  <style>
+    html, body, #map { height: 100%; margin: 0; padding: 0; }
+    .geocoder-control { width: 320px !important; }
+    .info-box {
+      position: absolute;
+      left: 8px;
+      bottom: 8px;
+      z-index: 1000;
+      background: rgba(255,255,255,0.95);
+      padding: 8px 10px;
+      border-radius: 6px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+      font-family: Arial, sans-serif;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+<div id="map"></div>
+<div class="info-box"><strong>Search tips:</strong> type a place or address (e.g., "Mumbai", "Taj Mahal") or coordinates "lat,lon" (e.g., 28.7041,77.1025). Click map for coords.</div>
+
+<!-- Leaflet JS -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<!-- Leaflet Control Geocoder (uses Nominatim by default) -->
+<script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
+
+<script>
+  (function(){
+    try {
+      // Initialize map centered over India
+      var map = L.map('map').setView([22.5, 79], 5);
+
+      // Add OpenStreetMap tiles
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '© OpenStreetMap contributors'
+      }).addTo(map);
+
+      // Setup geocoder control
+      var geocoder = L.Control.geocoder({
+        defaultMarkGeocode: false,
+        placeholder: 'Search places, addresses, coords...',
+        geocoder: L.Control.Geocoder.nominatim()
+      }).on('markgeocode', function(e) {
+        var bbox = e.geocode.bbox;
+        var center = e.geocode.center;
+        if (bbox) {
+          map.fitBounds(bbox);
+        } else if (center) {
+          map.setView(center, 15);
+        }
+        // Remove previous marker
+        if (window._searchResultMarker) { map.removeLayer(window._searchResultMarker); }
+        // Add new marker
+        window._searchResultMarker = L.marker(e.geocode.center).addTo(map)
+          .bindPopup(e.geocode.html || e.geocode.name || e.geocode.properties && e.geocode.properties.display_name)
+          .openPopup();
+      }).addTo(map);
+
+      // Extend geocoder to support plain "lat,lon" coordinate input quickly.
+      (function extendGeocoderForCoords() {
+        if (!geocoder || !geocoder.options || !geocoder.options.geocoder) return;
+        var orig = geocoder.options.geocoder.geocode;
+        var customGeocode = function(query, cb, context) {
+          var q = query.trim();
+          var coordMatch = q.match(/^(-?\d+(?:\.\d+)?)\s*,?\s*(-?\d+(?:\.\d+)?)$/);
+          if (coordMatch) {
+            var lat = parseFloat(coordMatch[1]), lon = parseFloat(coordMatch[2]);
+            cb.call(context, [{name: 'Coordinates: ' + lat + ', ' + lon, bbox: [[lat, lon],[lat, lon]], center: L.latLng(lat, lon), html: 'Coordinates: ' + lat + ', ' + lon}]);
+            return;
+          }
+          return orig.call(this, query, cb, context);
+        };
+        geocoder.options.geocoder.geocode = customGeocode;
+      })();
+
+      // Click to show coords
+      map.on('click', function(e) {
+        var c = e.latlng.lat.toFixed(6) + ', ' + e.latlng.lng.toFixed(6);
+        L.popup().setLatLng(e.latlng).setContent('Coordinates: ' + c).openOn(map);
+      });
+
+      // Optional: small help in console
+      console.log('Leaflet map initialized. Use the search box to find places or coordinates.');
+    } catch (err) {
+      // If something fails, show an alert (helpful for local debugging)
+      alert('Error initializing the map: ' + err.message + '\nIf opening locally, try running a simple HTTP server (see instructions).');
+      console.error(err);
+    }
+  })();
+</script>
+</body>
+</html>
