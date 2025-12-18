@@ -13,14 +13,14 @@
     left: 10px;
     z-index: 1000;
     background: rgba(255,255,255,0.95);
-    padding: 8px 12px;
+    padding: 10px 14px;
     border-radius: 6px;
     box-shadow: 0 2px 6px rgba(0,0,0,0.3);
     font-family: Arial, sans-serif;
     font-size: 14px;
   }
-  .search-box input { margin-bottom: 4px; width: 200px; padding: 4px; }
-  .search-box button { width: 100%; padding: 4px; }
+  .search-box input { margin-bottom: 6px; width: 220px; padding: 4px; }
+  .search-box button { width: 100%; padding: 6px; cursor: pointer; }
 </style>
 </head>
 <body>
@@ -48,12 +48,13 @@ var satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/service
     attribution: 'Tiles © Esri'
 });
 
+// Add layer control for switching between OSM and satellite
 L.control.layers({"OSM": osm, "Satellite": satellite}).addTo(map);
 
 // Store city layers
 var cityLayers = {};
 
-// Fetch city boundary from OSM Overpass API
+// Function to fetch city boundary from OSM via Overpass API
 async function fetchCityBoundary(cityName) {
     var query = `
         [out:json];
@@ -61,23 +62,29 @@ async function fetchCityBoundary(cityName) {
         out geom;
     `;
     var url = 'https://overpass-api.de/api/interpreter?data=' + encodeURIComponent(query);
-    let res = await fetch(url);
-    let data = await res.json();
 
-    if (data.elements.length === 0) {
-        alert("City boundary not found for: " + cityName);
+    try {
+        let res = await fetch(url);
+        let data = await res.json();
+        if (!data.elements || data.elements.length === 0) {
+            alert("City boundary not found: " + cityName);
+            return null;
+        }
+        return osmtogeojson(data);
+    } catch (err) {
+        console.error("Error fetching city boundary:", err);
+        alert("Error fetching city: " + cityName);
         return null;
     }
-    return osmtogeojson(data);
 }
 
-// Add boundary to map
+// Add city boundary to map
 function addCityToMap(cityName, geojson, color) {
     if (cityLayers[cityName]) map.removeLayer(cityLayers[cityName]);
 
     var layer = L.geoJSON(geojson, {
         style: { color: color, weight: 3, opacity: 0.7, fillOpacity: 0.1 }
-    }).addTo(map);
+    }).bindPopup(cityName).addTo(map);
 
     cityLayers[cityName] = layer;
 
@@ -86,7 +93,7 @@ function addCityToMap(cityName, geojson, color) {
     map.fitBounds(group.getBounds());
 }
 
-// Button click: search and display both cities
+// Handle button click to compare two cities
 document.getElementById('compareBtn').addEventListener('click', async function() {
     var city1 = document.getElementById('city1').value.trim();
     var city2 = document.getElementById('city2').value.trim();
