@@ -1,115 +1,222 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<title>Compare Two City Boundaries</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-<style>
-  html, body, #map { height: 100%; margin: 0; padding: 0; }
-  .search-box {
-    position: absolute;
-    top: 10px;
-    left: 10px;
-    z-index: 1000;
-    background: rgba(255,255,255,0.95);
-    padding: 10px 14px;
-    border-radius: 6px;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.3);
-    font-family: Arial, sans-serif;
-    font-size: 14px;
-  }
-  .search-box input { margin-bottom: 6px; width: 220px; padding: 4px; }
-  .search-box button { width: 100%; padding: 6px; cursor: pointer; }
-</style>
+    <meta charset="utf-8">
+    <title>Compare Two City Boundaries</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet"
+          href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+
+    <style>
+        html, body, #map {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+        }
+
+        .search-box {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 1000;
+            background: rgba(255,255,255,0.96);
+            padding: 12px 14px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+            font-family: Arial, sans-serif;
+            width: 240px;
+        }
+
+        .search-box input {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 8px;
+            box-sizing: border-box;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+
+        .search-box button {
+            width: 100%;
+            padding: 10px;
+            border: none;
+            border-radius: 4px;
+            background: #0078ff;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .search-box button:hover {
+            background: #005fcc;
+        }
+
+        .legend {
+            margin-top: 10px;
+            font-size: 13px;
+        }
+
+        .legend span {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            margin-right: 6px;
+            vertical-align: middle;
+        }
+    </style>
 </head>
 <body>
+
 <div id="map"></div>
 
 <div class="search-box">
-  <input type="text" id="city1" placeholder="Enter City 1" />
-  <input type="text" id="city2" placeholder="Enter City 2" />
-  <button id="compareBtn">Show Boundaries</button>
+    <input type="text" id="city1" placeholder="Enter City 1 (e.g. Kolkata)">
+    <input type="text" id="city2" placeholder="Enter City 2 (e.g. Durgapur)">
+    <button id="compareBtn">Show Boundaries</button>
+
+    <div class="legend">
+        <div><span style="background:red;"></span> City 1</div>
+        <div><span style="background:blue;"></span> City 2</div>
+    </div>
 </div>
 
+<!-- Leaflet JS -->
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<!-- OSM to GeoJSON converter -->
 <script src="https://unpkg.com/osmtogeojson@3.0.0/osmtogeojson.js"></script>
 
 <script>
 // Initialize map
-var map = L.map('map').setView([23.0, 87.0], 6);
+const map = L.map('map').setView([23.5, 87.3], 7);
 
-// Base layers
-var osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19, attribution: '© OpenStreetMap contributors'
-}).addTo(map);
+// OSM layer
+const osm = L.tileLayer(
+    'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors'
+    }
+).addTo(map);
 
-var satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-    attribution: 'Tiles © Esri'
-});
+// Satellite layer
+const satellite = L.tileLayer(
+    'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    {
+        attribution: 'Tiles &copy; Esri'
+    }
+);
 
-// Add layer control for switching between OSM and satellite
-L.control.layers({"OSM": osm, "Satellite": satellite}).addTo(map);
+// Layer switcher
+L.control.layers(
+    { 'OpenStreetMap': osm, 'Satellite': satellite }
+).addTo(map);
 
-// Store city layers
-var cityLayers = {};
+// Store current city layers
+let cityLayers = [];
 
-// Function to fetch city boundary from OSM via Overpass API
+// Fetch city boundary from Overpass API
 async function fetchCityBoundary(cityName) {
-    var query = `
-        [out:json];
-        relation["boundary"="administrative"]["name"="${cityName}"]["admin_level"~"[68]"];
+
+    // Add country context for better matching
+    const searchName = cityName + ', India';
+
+    const query = `
+        [out:json][timeout:25];
+        (
+          relation["boundary"="administrative"]["name"~"${cityName}",i];
+          relation["boundary"="administrative"]["official_name"~"${cityName}",i];
+        );
         out geom;
     `;
-    var url = 'https://overpass-api.de/api/interpreter?data=' + encodeURIComponent(query);
+
+    const url =
+        'https://overpass-api.de/api/interpreter?data=' +
+        encodeURIComponent(query);
 
     try {
-        let res = await fetch(url);
-        let data = await res.json();
+        const response = await fetch(url);
+
+        if (!response.ok) {
+            throw new Error('HTTP ' + response.status);
+        }
+
+        const data = await response.json();
+
         if (!data.elements || data.elements.length === 0) {
-            alert("City boundary not found: " + cityName);
+            alert('City boundary not found: ' + cityName);
             return null;
         }
+
         return osmtogeojson(data);
-    } catch (err) {
-        console.error("Error fetching city boundary:", err);
-        alert("Error fetching city: " + cityName);
+
+    } catch (error) {
+        console.error(error);
+        alert('Error fetching city: ' + cityName);
         return null;
     }
 }
 
-// Add city boundary to map
+// Add boundary to map
 function addCityToMap(cityName, geojson, color) {
-    if (cityLayers[cityName]) map.removeLayer(cityLayers[cityName]);
 
-    var layer = L.geoJSON(geojson, {
-        style: { color: color, weight: 3, opacity: 0.7, fillOpacity: 0.1 }
-    }).bindPopup(cityName).addTo(map);
+    const layer = L.geoJSON(geojson, {
+        style: {
+            color: color,
+            weight: 3,
+            opacity: 0.8,
+            fillOpacity: 0.15
+        }
+    }).bindPopup('<b>' + cityName + '</b>');
 
-    cityLayers[cityName] = layer;
-
-    // Zoom to fit all displayed cities
-    var group = L.featureGroup(Object.values(cityLayers));
-    map.fitBounds(group.getBounds());
+    layer.addTo(map);
+    cityLayers.push(layer);
 }
 
-// Handle button click to compare two cities
-document.getElementById('compareBtn').addEventListener('click', async function() {
-    var city1 = document.getElementById('city1').value.trim();
-    var city2 = document.getElementById('city2').value.trim();
-    if (!city1 && !city2) return alert("Enter at least one city.");
+// Compare button
+document.getElementById('compareBtn')
+    .addEventListener('click', async () => {
 
-    var colors = ["red","blue","green","orange","purple","magenta"];
+    const city1 =
+        document.getElementById('city1').value.trim();
 
-    if (city1) {
-        var geo1 = await fetchCityBoundary(city1);
-        if (geo1) addCityToMap(city1, geo1, colors[0]);
+    const city2 =
+        document.getElementById('city2').value.trim();
+
+    if (!city1 && !city2) {
+        alert('Enter at least one city.');
+        return;
     }
+
+    // Remove previous layers
+    cityLayers.forEach(layer => map.removeLayer(layer));
+    cityLayers = [];
+
+    // Fetch and draw city 1
+    if (city1) {
+        const geo1 = await fetchCityBoundary(city1);
+        if (geo1) {
+            addCityToMap(city1, geo1, 'red');
+        }
+    }
+
+    // Fetch and draw city 2
     if (city2) {
-        var geo2 = await fetchCityBoundary(city2);
-        if (geo2) addCityToMap(city2, geo2, colors[1]);
+        const geo2 = await fetchCityBoundary(city2);
+        if (geo2) {
+            addCityToMap(city2, geo2, 'blue');
+        }
+    }
+
+    // Zoom to fit both cities
+    if (cityLayers.length > 0) {
+        const group = L.featureGroup(cityLayers);
+        map.fitBounds(group.getBounds(), { padding: [20, 20] });
     }
 });
 </script>
+
 </body>
 </html>
