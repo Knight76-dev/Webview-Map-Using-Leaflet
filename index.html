@@ -1,9 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="utf-8">
-    <title>Compare Two City Boundaries</title>
+    <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>City Boundary Comparison</title>
 
     <!-- Leaflet CSS -->
     <link rel="stylesheet"
@@ -22,11 +22,11 @@
             left: 10px;
             z-index: 1000;
             background: rgba(255,255,255,0.96);
-            padding: 12px 14px;
+            padding: 12px;
             border-radius: 8px;
             box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+            width: 260px;
             font-family: Arial, sans-serif;
-            width: 240px;
         }
 
         .search-box input {
@@ -41,12 +41,12 @@
         .search-box button {
             width: 100%;
             padding: 10px;
-            border: none;
-            border-radius: 4px;
             background: #0078ff;
             color: white;
-            font-weight: bold;
+            border: none;
+            border-radius: 4px;
             cursor: pointer;
+            font-weight: bold;
         }
 
         .search-box button:hover {
@@ -55,7 +55,7 @@
 
         .legend {
             margin-top: 10px;
-            font-size: 13px;
+            font-size: 14px;
         }
 
         .legend span {
@@ -72,8 +72,8 @@
 <div id="map"></div>
 
 <div class="search-box">
-    <input type="text" id="city1" placeholder="Enter City 1 (e.g. Kolkata)">
-    <input type="text" id="city2" placeholder="Enter City 2 (e.g. Durgapur)">
+    <input type="text" id="city1" placeholder="e.g. Kolkata">
+    <input type="text" id="city2" placeholder="e.g. Kharagpur">
     <button id="compareBtn">Show Boundaries</button>
 
     <div class="legend">
@@ -87,9 +87,9 @@
 
 <script>
 // Initialize map
-const map = L.map('map').setView([23.5, 87.3], 7);
+const map = L.map('map').setView([22.5, 87.3], 8);
 
-// OSM layer
+// Base map
 const osm = L.tileLayer(
     'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
     {
@@ -106,51 +106,87 @@ const satellite = L.tileLayer(
     }
 );
 
-// Layer switcher
+// Layer control
 L.control.layers(
     { 'OpenStreetMap': osm, 'Satellite': satellite }
 ).addTo(map);
 
-// Store current city layers
+// Store displayed layers
 let cityLayers = [];
 
-// Fetch city boundary from Nominatim
+// Exact OSM relation IDs
+const relationIds = {
+    'kolkata': 1952843,
+    'medinipur': 3258122,
+    'midnapore': 3258122,
+    'kharagpur': 3258461
+};
+
+// Fetch boundary from Overpass
 async function fetchCityBoundary(cityName) {
 
-    const query = `${cityName}, India`;
+    const key = cityName.trim().toLowerCase();
+    const relationId = relationIds[key];
+
+    if (!relationId) {
+        alert('Boundary relation ID not configured for: ' + cityName);
+        return null;
+    }
+
+    const query = `
+        [out:json][timeout:25];
+        relation(${relationId});
+        out geom;
+    `;
 
     const url =
-      `https://nominatim.openstreetmap.org/search?` +
-      `q=${encodeURIComponent(query)}` +
-      `&format=jsonv2&polygon_geojson=1&limit=1`;
+      'https://overpass-api.de/api/interpreter?data=' +
+      encodeURIComponent(query);
 
     try {
-        const response = await fetch(url, {
-            headers: {
-                'Accept': 'application/json'
-            }
-        });
+        const response = await fetch(url);
 
         if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
+            throw new Error('HTTP ' + response.status);
         }
 
         const data = await response.json();
 
-        if (!data || data.length === 0) {
-            alert('City boundary not found: ' + cityName);
+        if (!data.elements || data.elements.length === 0) {
+            alert('Boundary not found for: ' + cityName);
+            return null;
+        }
+
+        const rel = data.elements[0];
+
+        const polygons = rel.members
+            .filter(m => m.role === 'outer' && m.geometry)
+            .map(m =>
+                m.geometry.map(p => [p.lon, p.lat])
+            );
+
+        if (polygons.length === 0) {
+            alert('No polygon geometry found for: ' + cityName);
             return null;
         }
 
         return {
             type: 'Feature',
             properties: { name: cityName },
-            geometry: data[0].geojson
+            geometry: polygons.length > 1
+                ? {
+                    type: 'MultiPolygon',
+                    coordinates: polygons.map(r => [r])
+                }
+                : {
+                    type: 'Polygon',
+                    coordinates: [polygons[0]]
+                }
         };
 
     } catch (error) {
-        console.error('Nominatim error:', error);
-        alert('Error fetching city: ' + cityName + '\n' + error.message);
+        console.error(error);
+        alert('Error fetching boundary for: ' + cityName);
         return null;
     }
 }
@@ -162,7 +198,7 @@ function addCityToMap(cityName, geojson, color) {
         style: {
             color: color,
             weight: 3,
-            opacity: 0.8,
+            opacity: 0.9,
             fillOpacity: 0.15
         }
     }).bindPopup('<b>' + cityName + '</b>');
@@ -175,38 +211,31 @@ function addCityToMap(cityName, geojson, color) {
 document.getElementById('compareBtn')
     .addEventListener('click', async () => {
 
-    const city1 =
-        document.getElementById('city1').value.trim();
-
-    const city2 =
-        document.getElementById('city2').value.trim();
+    const city1 = document.getElementById('city1').value.trim();
+    const city2 = document.getElementById('city2').value.trim();
 
     if (!city1 && !city2) {
         alert('Enter at least one city.');
         return;
     }
 
-    // Remove previous layers
+    // Clear previous layers
     cityLayers.forEach(layer => map.removeLayer(layer));
     cityLayers = [];
 
-    // Fetch and draw city 1
+    // City 1
     if (city1) {
         const geo1 = await fetchCityBoundary(city1);
-        if (geo1) {
-            addCityToMap(city1, geo1, 'red');
-        }
+        if (geo1) addCityToMap(city1, geo1, 'red');
     }
 
-    // Fetch and draw city 2
+    // City 2
     if (city2) {
         const geo2 = await fetchCityBoundary(city2);
-        if (geo2) {
-            addCityToMap(city2, geo2, 'blue');
-        }
+        if (geo2) addCityToMap(city2, geo2, 'blue');
     }
 
-    // Zoom to fit both cities
+    // Zoom to fit
     if (cityLayers.length > 0) {
         const group = L.featureGroup(cityLayers);
         map.fitBounds(group.getBounds(), { padding: [20, 20] });
