@@ -85,9 +85,6 @@
 <!-- Leaflet JS -->
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-<!-- OSM to GeoJSON converter -->
-<script src="https://unpkg.com/osmtogeojson@3.0.0/osmtogeojson.js"></script>
-
 <script>
 // Initialize map
 const map = L.map('map').setView([23.5, 87.3], 7);
@@ -117,44 +114,43 @@ L.control.layers(
 // Store current city layers
 let cityLayers = [];
 
-// Fetch city boundary from Overpass API
+// Fetch city boundary from Nominatim
 async function fetchCityBoundary(cityName) {
 
-    // Add country context for better matching
-    const searchName = cityName + ', India';
-
-    const query = `
-        [out:json][timeout:25];
-        (
-          relation["boundary"="administrative"]["name"~"${cityName}",i];
-          relation["boundary"="administrative"]["official_name"~"${cityName}",i];
-        );
-        out geom;
-    `;
+    const query = `${cityName}, India`;
 
     const url =
-    'https://overpass.kumi.systems/api/interpreter?data=' +
-    encodeURIComponent(query);
+      `https://nominatim.openstreetmap.org/search?` +
+      `q=${encodeURIComponent(query)}` +
+      `&format=jsonv2&polygon_geojson=1&limit=1`;
 
     try {
-        const response = await fetch(url);
+        const response = await fetch(url, {
+            headers: {
+                'Accept': 'application/json'
+            }
+        });
 
         if (!response.ok) {
-            throw new Error('HTTP ' + response.status);
+            throw new Error(`HTTP ${response.status}`);
         }
 
         const data = await response.json();
 
-        if (!data.elements || data.elements.length === 0) {
+        if (!data || data.length === 0) {
             alert('City boundary not found: ' + cityName);
             return null;
         }
 
-        return osmtogeojson(data);
+        return {
+            type: 'Feature',
+            properties: { name: cityName },
+            geometry: data[0].geojson
+        };
 
     } catch (error) {
-        console.error(error);
-        alert('Error fetching city: ' + cityName);
+        console.error('Nominatim error:', error);
+        alert('Error fetching city: ' + cityName + '\n' + error.message);
         return null;
     }
 }
